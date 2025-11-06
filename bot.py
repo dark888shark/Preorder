@@ -1,111 +1,221 @@
-import os
+print("Бот предзаказов запущен 🟢")
+
+# ───────────────────────────────
+# 🔹 ИМПОРТЫ И НАСТРОЙКИ
+# ───────────────────────────────
 import telebot
 from telebot import types
-from excel_utils import append_to_excel
+from openpyxl import load_workbook
 from datetime import datetime
 import logging
 
-BOT_TOKEN = "явки пароли"
-ADMIN_ID = "явки пароли"
-XLSX_PATH = "/opt/whiphound_bot/Whiphound Orders.xlsx"
-POLICY_URL = "https://whiphound.ru/privacy-policy.html"
+TOKEN = "явки пароли"
+XLSX_PATH = "явки пароли"
+POLICY_URL = "явки пароли"
+ADMIN_ID = 317425235  
 
-bot = telebot.TeleBot(BOT_TOKEN)
-
-# включаем логирование (по желанию)
-logging.basicConfig(level=logging.INFO)
-
+bot = telebot.TeleBot(TOKEN)
 user_state = {}
 user_data = {}
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
 # ───────────────────────────────
-# Этап 1. Старт + политика
+# 🏁 СТАРТ И СОГЛАСИЕ
 # ───────────────────────────────
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.InlineKeyboardMarkup()
     btn_agree = types.InlineKeyboardButton("✅ Согласен", callback_data="agree")
-    btn_policy = types.InlineKeyboardButton("📄 Читать политику", url=POLICY_URL)
+    btn_policy = types.InlineKeyboardButton("📄 Политика конфиденциальности", url=POLICY_URL)
     markup.add(btn_agree, btn_policy)
-
     bot.send_message(
         message.chat.id,
-        "Привет! 🐾 Перед оформлением заказа нужно подтвердить согласие "
-        "на обработку персональных данных в соответствии с политикой конфиденциальности.",
+        "Привет! 🐾 Перед началом оформления предзаказа нужно подтвердить согласие с обработкой персональных данных.",
         reply_markup=markup
     )
-    logging.info(f"Пользователь {message.from_user.id} запустил /start")
 
 # ───────────────────────────────
-# Этап 2. После согласия
+# 📏 ИНФОРМАЦИЯ О РАЗМЕРАХ + ВЫБОР ЛИНЕЙКИ
 # ───────────────────────────────
 @bot.callback_query_handler(func=lambda call: call.data == "agree")
 def agreement(call):
-    uid = call.from_user.id
-    user_state[uid] = "awaiting_name"
-    user_data[uid] = {}
-    bot.send_message(
-        call.message.chat.id,
-        "Отлично! Напиши, пожалуйста, *имя* 👇",
-        parse_mode="Markdown"
+    user_state[call.from_user.id] = "awaiting_line"
+    user_data[call.from_user.id] = {}
+
+    info_text = (
+        "📏 *Информация по размерам намордников*\n\n"
+        "*Whippet* — подходит породам уиппет, басенджи, такса, пудель, крупные левретки и т.д.\n"
+        "Размер: длина — *18 см*, от кончика носа до глаз — *7 см*, окружность — *27 см*.\n\n"
+        "*Saluki* — подходит для гальго, некрупных фараоновых собак и схожих пород.\n"
+        "Размер: длина — *22,5 см*, нос — *9 см*, окружность — *32 см*.\n\n"
+        "*Borzoi (RPB)* — подходит для грейхаундов, поденко ибиценко, риджбеков, небольших волкодавов и т.д.\n"
+        "Размер: длина — *22,5 см*, нос — *10 см*, окружность — *36 см*.\n\n"
+        "*IGGY (левретка)* — подходит для итальянских борзых (левреток).\n"
+        "Размер: длина — *16 см*, нос — *5 см*.\n\n"
+        "🐾 *Размер универсальный для базовых пород (уиппет / басенджи / салюки / RPB)* — подходит на *100%*, ремешок регулируется.\n\n"
+        "💛 Уже 4 года с вами, друзья — спасибо за доверие и любовь к нашим намордникам!"
     )
-    logging.info(f"Пользователь {uid} согласился с политикой")
+
+    bot.send_message(call.message.chat.id, info_text, parse_mode="Markdown")
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("Whippet", "Borzoi", "Saluki", "IGGY")
+    bot.send_message(call.message.chat.id, "Теперь выбери линейку (тип / размер) намордника 🐕", reply_markup=markup)
 
 # ───────────────────────────────
-# Этап 3. Имя → фамилия → телефон → адрес
+# 🎨 ВЫБОР ЦВЕТА
+# ───────────────────────────────
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_line")
+def choose_line(message):
+    user_data[message.from_user.id]["line"] = message.text
+    user_state[message.from_user.id] = "awaiting_color"
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+
+    if message.text == "Whippet":
+        markup.add("⚪ White", "🟤 Brown", "💗 Pink", "🩵 Teal")
+        markup.add("⚫ Black", "🔵 Blue", "🔴 Red", "🟢 Green")
+        markup.add("🟣 Purple", "🟡 Yellow", "🟠 Orange", "💚 Lime green")
+        markup.add("🟩 Khaki", "💜 Lilac", "✨ Gold", "⬜ Silver")
+
+    elif message.text in ["Borzoi", "Saluki"]:
+        markup.add("⚫ Black", "🟢 Green", "🔴 Red", "🟠 Orange")
+        markup.add("🟣 Purple", "🟡 Yellow", "⚪ White", "🔵 Blue")
+
+    elif message.text == "IGGY":
+        markup.add("⚫ Black", "⚪ White")
+
+    bot.send_message(
+        message.chat.id,
+        "🎨 Выбери цвет намордника из списка ниже.\n\n"
+        "Палитра представлена в профиле канала — эмодзи не передают реальный цвет намордника.",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_color")
+def choose_color(message):
+    user_data[message.from_user.id]["color"] = message.text
+    user_state[message.from_user.id] = "awaiting_name"
+    bot.send_message(message.chat.id, "Теперь напиши *имя* ✍️", parse_mode="Markdown")
+
+# ───────────────────────────────
+# 👤 ДАННЫЕ + ДОСТАВКА
 # ───────────────────────────────
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_name")
 def get_name(message):
-    uid = message.from_user.id
-    user_data[uid]["name"] = message.text.strip()
-    user_state[uid] = "awaiting_surname"
-    bot.send_message(message.chat.id, "Теперь введи *фамилию* 👇", parse_mode="Markdown")
-    logging.info(f"{uid} указал имя: {message.text}")
+    user_data[message.from_user.id]["name"] = message.text
+    user_state[message.from_user.id] = "awaiting_surname"
+    bot.send_message(message.chat.id, "Теперь фамилию 👇", parse_mode="Markdown")
+
 
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_surname")
 def get_surname(message):
-    uid = message.from_user.id
-    user_data[uid]["surname"] = message.text.strip()
-    user_state[uid] = "awaiting_phone"
-    bot.send_message(message.chat.id, "Укажи *номер телефона* 📞", parse_mode="Markdown")
-    logging.info(f"{uid} указал фамилию: {message.text}")
+    user_data[message.from_user.id]["surname"] = message.text
+    user_state[message.from_user.id] = "awaiting_phone"
+    bot.send_message(message.chat.id, "Теперь напиши *номер телефона* 📞", parse_mode="Markdown")
+
 
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_phone")
 def get_phone(message):
+    user_data[message.from_user.id]["phone"] = message.text
+    user_state[message.from_user.id] = "awaiting_delivery"
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("🚗 Самовывоз", "📦 СДЭК")
+    bot.send_message(message.chat.id, "Самовывоз (Москва, м. Южная) или доставка через СДЭК?", reply_markup=markup)
+
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_delivery")
+def choose_delivery(message):
+    user_data[message.from_user.id]["delivery"] = message.text
+
+    if "Самовывоз" in message.text:
+        user_data[message.from_user.id]["address"] = "Самовывоз, Москва, Кировоградская 16к2, 5 подъезд"
+        user_state[message.from_user.id] = "awaiting_comment_decision"
+        ask_comment(message)
+    else:
+        user_state[message.from_user.id] = "awaiting_cdek"
+        bot.send_message(
+            message.chat.id,
+            "Теперь напиши полный *адрес СДЭКа* — вместе с городом.\n"
+            "Даже если это Москва.\n"
+            "Если это Московская область — укажи так: *МО, Реутов, адрес СДЭКа*.",
+            parse_mode="Markdown"
+        )
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_cdek")
+def get_cdek_address(message):
+    user_data[message.from_user.id]["address"] = message.text
+    user_state[message.from_user.id] = "awaiting_comment_decision"
+    ask_comment(message)
+
+# ───────────────────────────────
+# 💬 ВОПРОС О КОММЕНТАРИИ
+# ───────────────────────────────
+def ask_comment(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("📝 Да", "❌ Нет")
+    bot.send_message(message.chat.id, "Хочешь добавить комментарий к заказу?", reply_markup=markup)
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_comment_decision")
+def get_comment_decision(message):
+    if message.text == "❌ Нет":
+        user_data[message.from_user.id]["comment"] = "-"
+        save_to_excel(message)
+        send_final_message(message)
+    elif message.text == "📝 Да":
+        user_state[message.from_user.id] = "awaiting_comment_text"
+        bot.send_message(message.chat.id, "✏️ Напиши комментарий к заказу:", reply_markup=types.ReplyKeyboardRemove())
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_comment_text")
+def get_comment_text(message):
+    user_data[message.from_user.id]["comment"] = message.text
+    save_to_excel(message)
+    send_final_message(message)
+
+        # 🔁 Автоматический перезапуск после завершения заказа
+    import os, sys, time
+    time.sleep(3)  # даём боту 3 секунды, чтобы успело дойти сообщение
+    os.execv(sys.executable, ['python3'] + sys.argv)
+
+
+# ───────────────────────────────
+# 💾 ЗАПИСЬ В EXCEL
+# ───────────────────────────────
+def save_to_excel(message):
+    wb = load_workbook(XLSX_PATH)
+    ws = wb.active
     uid = message.from_user.id
-    user_data[uid]["phone"] = message.text.strip()
-    user_state[uid] = "awaiting_address"
-    bot.send_message(
-        message.chat.id,
-        "Теперь напиши полный *адрес СДЭКа* — вместе с городом, "
-        "даже если это Москва. "
-        "Если это Московская область — 'МО, Реутов, адрес СДЭКа' 🏤",
-        parse_mode="Markdown"
-    )
-    logging.info(f"{uid} указал телефон: {message.text}")
+    username = message.from_user.username or "-"
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_address")
-def get_address(message):
-    uid = message.from_user.id
-    user_data[uid]["address"] = message.text.strip()
-    user_state[uid] = None
+    ws.append([
+    now, uid, username,
+    user_data[uid].get("name", "-"),
+    user_data[uid].get("surname", "-"),
+    user_data[uid].get("phone", "-"),   # ← вот эта строка
+    user_data[uid].get("line", "-"),
+    user_data[uid].get("color", "-"),
+    user_data[uid].get("delivery", "-"),
+    user_data[uid].get("address", "-"),
+    user_data[uid].get("comment", "-")
+])
+    wb.save(XLSX_PATH)
 
-    append_to_excel(
-        XLSX_PATH,
-        [
-            f"{user_data[uid].get('name', '')} {user_data[uid].get('surname', '')}",
-            user_data[uid].get('phone', ''),
-            user_data[uid].get('address', ''),
-            datetime.now().strftime("%d.%m.%Y %H:%M")
-        ]
+# ───────────────────────────────
+# 💬 ФИНАЛЬНОЕ СООБЩЕНИЕ
+# ───────────────────────────────
+def send_final_message(message):
+    text = (
+        "Спасибо! 🐾 Предзаказ записан.\n\n"
+        "Когда соберётся группа на заказ — я напишу в канале сообщение о предоплате 👉 "
+        "[t.me/begnamordnik](https://t.me/begnamordnik)\n\n"
+        "После отправки заявки производителю — доставка из Британии в Москву занимает около *3 недель*.\n\n"
+        "📍 Самовывоз возможен по адресу: **Москва, Кировоградская 16к2, 5 подъезд (м. Южная)**.\n\n"
+        "По всем вопросам — [@cream8fresh](https://t.me/cream8fresh)"
+        "Уже 4 года вместе. Спасибо за доверие и обратную связь! 🙌"
     )
-
-    bot.send_message(
-        message.chat.id,
-        "✅ Спасибо! Все данные получены.\n"
-        "Я уже готовлю заявку для СДЭКа 🐕📦"
-    )
-    logging.info(f"{uid} указал адрес: {message.text}")
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 # ───────────────────────────────
 # Команда /excel — присылает актуальный файл
@@ -120,5 +230,15 @@ def send_excel(message):
         bot.reply_to(message, f"⚠️ Ошибка при отправке Excel: {e}")
         logging.error(f"Ошибка при отправке Excel: {e}")
 
+import time
+
 print("Бот запущен 🟢 (Excel mode)")
-bot.polling(none_stop=True)
+
+# 🔁 Автоматический перезапуск polling, если соединение с Telegram оборвётся
+while True:
+    try:
+        bot.polling(none_stop=True, timeout=30, long_polling_timeout=30)
+    except Exception as e:
+        logging.error(f"⚠️ Ошибка polling: {e}. Перезапуск через 5 секунд...")
+        time.sleep(5)
+
