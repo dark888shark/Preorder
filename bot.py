@@ -5,15 +5,18 @@ print("Бот предзаказов запущен 🟢")
 # ───────────────────────────────
 import telebot
 from telebot import types
+from telebot import apihelper
 from openpyxl import load_workbook
 from datetime import datetime
 import logging
 
-TOKEN = "явки пароли"
-XLSX_PATH = "явки пароли"
-POLICY_URL = "явки пароли"
-ADMIN_ID = 317425235  
+TOKEN = явки НИНИНИ ;)
+XLSX_PATH = "/opt/whiphound_preorder_bot/Preorders.xlsx"
+POLICY_URL = "https://whiphound.ru/privacy-policy.html"
+ADMIN_ID =  НИНИНИ ;)
 
+apihelper.CONNECT_TIMEOUT = 10
+apihelper.READ_TIMEOUT = 120
 bot = telebot.TeleBot(TOKEN)
 user_state = {}
 user_data = {}
@@ -40,8 +43,13 @@ def start(message):
 # ───────────────────────────────
 @bot.callback_query_handler(func=lambda call: call.data == "agree")
 def agreement(call):
-    user_state[call.from_user.id] = "awaiting_line"
-    user_data[call.from_user.id] = {}
+    uid = call.from_user.id
+
+    user_state.pop(uid, None)
+    user_data.pop(uid, None)
+
+    user_state[uid] = "awaiting_line"
+    user_data[uid] = {"items": []}
 
     info_text = (
         "📏 *Информация по размерам намордников*\n\n"
@@ -51,15 +59,13 @@ def agreement(call):
         "Размер: длина — *22,5 см*, нос — *9 см*, окружность — *32 см*.\n\n"
         "*Borzoi (RPB)* — подходит для грейхаундов, поденко ибиценко, риджбеков, небольших волкодавов и т.д.\n"
         "Размер: длина — *22,5 см*, нос — *10 см*, окружность — *36 см*.\n\n"
-        "*IGGY (левретка)* — подходит для итальянских борзых (левреток).\n"
-        "Размер: длина — *16 см*, нос — *5 см*.\n\n"
         "🐾 *Размер универсальный для базовых пород (уиппет / басенджи / салюки / RPB)* — подходит на *100%*, ремешок регулируется.\n\n"
         "💛 Уже 4 года с вами, друзья — спасибо за доверие и любовь к нашим намордникам!"
     )
 
     bot.send_message(call.message.chat.id, info_text, parse_mode="Markdown")
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    markup.add("Whippet", "Borzoi", "Saluki", "IGGY")
+    markup.add("Whippet", "Borzoi", "Saluki")
     bot.send_message(call.message.chat.id, "Теперь выбери линейку (тип / размер) намордника 🐕", reply_markup=markup)
 
 # ───────────────────────────────
@@ -67,6 +73,10 @@ def agreement(call):
 # ───────────────────────────────
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_line")
 def choose_line(message):
+    if message.text not in ["Whippet", "Borzoi", "Saluki"]:
+        bot.send_message(message.chat.id, "Выбери вариант кнопкой ниже 🙏")
+        return
+
     user_data[message.from_user.id]["line"] = message.text
     user_state[message.from_user.id] = "awaiting_color"
 
@@ -77,13 +87,9 @@ def choose_line(message):
         markup.add("⚫ Black", "🔵 Blue", "🔴 Red", "🟢 Green")
         markup.add("🟣 Purple", "🟡 Yellow", "🟠 Orange", "💚 Lime green")
         markup.add("🟩 Khaki", "💜 Lilac", "✨ Gold", "⬜ Silver")
-
     elif message.text in ["Borzoi", "Saluki"]:
         markup.add("⚫ Black", "🟢 Green", "🔴 Red", "🟠 Orange")
         markup.add("🟣 Purple", "🟡 Yellow", "⚪ White", "🔵 Blue")
-
-    elif message.text == "IGGY":
-        markup.add("⚫ Black", "⚪ White")
 
     bot.send_message(
         message.chat.id,
@@ -94,9 +100,35 @@ def choose_line(message):
 
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_color")
 def choose_color(message):
-    user_data[message.from_user.id]["color"] = message.text
-    user_state[message.from_user.id] = "awaiting_name"
-    bot.send_message(message.chat.id, "Теперь напиши *имя* ✍️", parse_mode="Markdown")
+    uid = message.from_user.id
+
+    user_data[uid]["items"].append({
+        "line": user_data[uid].get("line", "-"),
+        "color": message.text
+    })
+
+    # чтобы не было хвостов между позициями
+    user_data[uid].pop("line", None)
+
+    user_state[uid] = "add_more_item"
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    markup.add("➕ Добавить ещё намордник", "✅ Оформить заказ")
+    bot.send_message(message.chat.id, "Добавить ещё один намордник или оформляем заказ?", reply_markup=markup)
+
+
+@bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "add_more_item")
+def add_more_item(message):
+    uid = message.from_user.id
+
+    if "Добавить" in message.text:
+        user_state[uid] = "awaiting_line"
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        markup.add("Whippet", "Borzoi", "Saluki")
+        bot.send_message(message.chat.id, "Ок, выбери линейку следующего намордника 🐕", reply_markup=markup)
+    else:
+        user_state[uid] = "awaiting_name"
+        bot.send_message(message.chat.id, "Теперь напиши *имя* ✍️", parse_mode="Markdown", reply_markup=types.ReplyKeyboardRemove())
 
 # ───────────────────────────────
 # 👤 ДАННЫЕ + ДОСТАВКА
@@ -159,24 +191,36 @@ def ask_comment(message):
 
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_comment_decision")
 def get_comment_decision(message):
+    uid = message.from_user.id
+
     if message.text == "❌ Нет":
-        user_data[message.from_user.id]["comment"] = "-"
+        user_data[uid]["comment"] = "-"
         save_to_excel(message)
         send_final_message(message)
+
+        # очистка состояния после завершения заказа
+        user_state.pop(uid, None)
+        user_data.pop(uid, None)
+
     elif message.text == "📝 Да":
-        user_state[message.from_user.id] = "awaiting_comment_text"
-        bot.send_message(message.chat.id, "✏️ Напиши комментарий к заказу:", reply_markup=types.ReplyKeyboardRemove())
+        user_state[uid] = "awaiting_comment_text"
+        bot.send_message(
+            message.chat.id,
+            "✏️ Напиши комментарий к заказу:",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
 
 @bot.message_handler(func=lambda msg: user_state.get(msg.from_user.id) == "awaiting_comment_text")
 def get_comment_text(message):
-    user_data[message.from_user.id]["comment"] = message.text
+    uid = message.from_user.id
+
+    user_data[uid]["comment"] = message.text
     save_to_excel(message)
     send_final_message(message)
 
-        # 🔁 Автоматический перезапуск после завершения заказа
-    import os, sys, time
-    time.sleep(3)  # даём боту 3 секунды, чтобы успело дойти сообщение
-    os.execv(sys.executable, ['python3'] + sys.argv)
+    # очистка состояния после завершения заказа
+    user_state.pop(uid, None)
+    user_data.pop(uid, None)
 
 
 # ───────────────────────────────
@@ -185,22 +229,28 @@ def get_comment_text(message):
 def save_to_excel(message):
     wb = load_workbook(XLSX_PATH)
     ws = wb.active
+
     uid = message.from_user.id
     username = message.from_user.username or "-"
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-    ws.append([
-    now, uid, username,
-    user_data[uid].get("name", "-"),
-    user_data[uid].get("surname", "-"),
-    user_data[uid].get("phone", "-"),   # ← вот эта строка
-    user_data[uid].get("line", "-"),
-    user_data[uid].get("color", "-"),
-    user_data[uid].get("delivery", "-"),
-    user_data[uid].get("address", "-"),
-    user_data[uid].get("comment", "-")
-])
+    items = user_data[uid].get("items", [])
+
+    for item in items:
+        ws.append([
+            now, uid, username,
+            user_data[uid].get("name", "-"),
+            user_data[uid].get("surname", "-"),
+            user_data[uid].get("phone", "-"),
+            item.get("line", "-"),
+            item.get("color", "-"),
+            user_data[uid].get("delivery", "-"),
+            user_data[uid].get("address", "-"),
+            user_data[uid].get("comment", "-")
+        ])
+
     wb.save(XLSX_PATH)
+
 
 # ───────────────────────────────
 # 💬 ФИНАЛЬНОЕ СООБЩЕНИЕ
@@ -222,13 +272,18 @@ def send_final_message(message):
 # ───────────────────────────────
 @bot.message_handler(commands=['excel'])
 def send_excel(message):
+    if message.from_user.id != НИНИНИ ;):
+        bot.reply_to(message, "⛔️ У вас нет доступа к этому файлу.")
+        return
+
     try:
         with open(XLSX_PATH, 'rb') as f:
             bot.send_document(message.chat.id, f)
-        logging.info(f"Пользователь {message.from_user.id} запросил Excel-файл.")
+        logging.info(f"Админ {message.from_user.id} запросил Excel-файл.")
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Ошибка при отправке Excel: {e}")
+        bot.reply_to(message, "⚠️ Не удалось отправить Excel-файл. Попробуйте позже.")
         logging.error(f"Ошибка при отправке Excel: {e}")
+
 
 import time
 
